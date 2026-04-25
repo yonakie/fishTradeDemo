@@ -5,3 +5,14 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Python build artifacts
+*.egg-info/
+
+# Runtime state (per docs/01-tech-design.md §1.2)
+python/data/
+python/logs/
+python/reports/
+
+# Per-user Claude Code overrides
+.claude/settings.local.json
