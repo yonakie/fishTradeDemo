@@ -1,0 +1,137 @@
+{# 1. Header #}
+## 1. Decision Summary
+
+| Field | Value |
+|-------|-------|
+| Ticker | {{ s.ticker }} |
+| As-of date | {{ s.as_of_date }} |
+| Run ID | `{{ s.run_id }}` |
+| Mode | {{ s.mode }} |
+| Capital | {{ s.capital | safe_str }} |
+{% if s.debate %}
+| Final verdict | **{{ s.debate.final_verdict }}** (proposed position {{ '%.2f' | format(s.debate.proposed_position_pct) }}%) |
+{% else %}
+| Final verdict | **Did not reach debate layer** |
+{% endif %}
+{% if s.halt_reason %}
+| Halt reason | `{{ s.halt_reason }}` |
+{% endif %}
+
+{# 2. Research scores #}
+## 2. Three-Facet Scores
+
+{% for facet, label, report in [
+  ('fundamental', 'Fundamental', s.research_fundamental),
+  ('technical', 'Technical', s.research_technical),
+  ('sentimental', 'Sentiment', s.research_sentimental),
+] %}
+### 2.{{ loop.index }} {{ label }}{% if report %} (total {{ report.total_score }} → {{ report.verdict }}, confidence {{ '%.2f' | format(report.confidence) }}){% else %} (not produced){% endif %}
+
+{% if report %}
+| # | Indicator | Raw | Score | Reasoning |
+|---|-----------|-----|-------|-----------|
+{% for ind in report.indicator_scores -%}
+| {{ loop.index }} | {{ ind.display_name_en }} | {{ ind.raw_value | safe_str }} | {{ ind.score }} | {{ ind.reasoning }}{% if ind.is_degraded %} (**degraded**: {{ ind.degrade_reason }}){% endif %} |
+{% endfor %}
+
+{% if report.key_highlights %}**Highlights**: {% for h in report.key_highlights %}{{ h }}{% if not loop.last %}; {% endif %}{% endfor %}{% endif %}
+{% if report.is_facet_degraded %}> ⚠️ Facet degraded: {{ report.degrade_summary }}{% endif %}
+{% else %}
+> Facet report missing.
+{% endif %}
+
+{% endfor %}
+
+{# 3. Debate transcript #}
+## 3. Debate Transcript
+
+{% if s.debate %}
+{% for turn in s.debate.turns %}
+**Round {{ turn.round }} · {{ 'Bull' if turn.role == 'bull' else 'Bear' }}** → conclusion: {{ turn.conclusion }}{% if turn.is_fallback %} (fallback template){% endif %}
+
+> {{ turn.argument }}
+
+Cites: {{ turn.cited_indicators | join(', ') }}
+
+{% endfor %}
+**Judge rationale**: {{ s.debate.final_rationale }}
+{% else %}
+> Did not reach debate layer ({% if s.halt_reason %}{{ s.halt_reason }}{% else %}reason unknown{% endif %}).
+{% endif %}
+
+{# 4. Risk decision #}
+## 4. Risk Decision
+
+{% if s.risk %}
+- Decision: **{{ s.risk.decision }}**, final position {{ '%.2f' | format(s.risk.adjusted_position_pct) }}%
+{% if s.risk.reject_reason %}- Reject reason: `{{ s.risk.reject_reason }}`{% endif %}
+
+| Hard rule | Passed | Actual | Threshold | Detail |
+|-----------|--------|--------|-----------|--------|
+{% for c in s.risk.hard_checks -%}
+| {{ c.rule }} | {{ '✅' if c.passed else '❌' }} | {{ c.actual | safe_str }} | {{ c.threshold | safe_str }} | {{ c.detail }} |
+{% endfor %}
+
+**VaR**: var_95 = {{ '%.4f' | format(s.risk.var_result.var_95) }}, portfolio_impact = {{ '%.4f' | format(s.risk.var_result.portfolio_impact) }}, sample {{ s.risk.var_result.sample_size }}, passed {{ '✅' if s.risk.var_result.passed else '❌' }}{% if s.risk.var_result.fallback_reason %}, fallback: {{ s.risk.var_result.fallback_reason }}{% endif %}
+
+**Soft rules**: flags = {{ s.risk.soft_judgment.flags | join(', ') }}, adjustment = {{ s.risk.soft_judgment.adjustment }}
+
+> {{ s.risk.soft_judgment.reasoning }}
+{% else %}
+> Did not reach risk layer.
+{% endif %}
+
+{# 5. Execution #}
+## 5. Execution
+
+{% if s.execution %}
+- Mode: {{ s.execution.mode }}, status: **{{ s.execution.status }}**
+{% if s.execution.broker_order_id %}- Broker order id: `{{ s.execution.broker_order_id }}`{% endif %}
+{% if s.execution.error %}- Error: `{{ s.execution.error }}`{% endif %}
+
+{% if s.execution.order %}
+| Field | Value |
+|-------|-------|
+| Symbol | {{ s.execution.order.symbol }} |
+| Side | {{ s.execution.order.side }} |
+| Qty | {{ s.execution.order.qty }} |
+| Type | {{ s.execution.order.order_type }} |
+| Limit | {{ s.execution.order.limit_price }} |
+| Stop | {{ s.execution.order.stop_price | safe_str }} |
+| TIF | {{ s.execution.order.tif }} |
+{% else %}
+> No order generated.
+{% endif %}
+
+{% if s.execution.fill_info %}
+**Fill**: avg_price {{ s.execution.fill_info.avg_price }}, filled_qty {{ s.execution.fill_info.filled_qty }}, fill_time {{ s.execution.fill_info.fill_time }}
+{% endif %}
+{% else %}
+> Did not reach execution layer.
+{% endif %}
+
+{# 6. Portfolio change #}
+## 6. Portfolio Change
+
+| Item | Before | After |
+|------|--------|-------|
+| Cash | {{ s.portfolio_before.cash if s.portfolio_before else '—' }} | {{ s.portfolio_after.cash if s.portfolio_after else '—' }} |
+| NAV | {{ s.portfolio_before.nav if s.portfolio_before else '—' }} | {{ s.portfolio_after.nav if s.portfolio_after else '—' }} |
+| #Positions | {{ s.portfolio_before.positions | length if s.portfolio_before else '—' }} | {{ s.portfolio_after.positions | length if s.portfolio_after else '—' }} |
+| Max DD (%) | {{ s.portfolio_before.max_drawdown_pct if s.portfolio_before else '—' }} | {{ s.portfolio_after.max_drawdown_pct if s.portfolio_after else '—' }} |
+
+{# 7. Warnings #}
+## 7. Warnings & Degradations
+
+{% if s.warnings %}
+{% for w in s.warnings -%}
+- `{{ w }}`
+{% endfor %}
+{% else %}
+> No warnings.
+{% endif %}
+
+{# 8. Trace #}
+## 8. Trace
+
+- Index file: `{{ s.trace_path }}`
