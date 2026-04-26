@@ -48,6 +48,27 @@ class ResearchSection(TypedDict, total=False):
     sentimental: ResearchReport | None
 
 
+def _merge_research(
+    left: ResearchSection | None, right: ResearchSection | None
+) -> ResearchSection:
+    """Sub-key merge for the parallel research channel.
+
+    LangGraph reducers operate at top-level field granularity; without this
+    merge, three parallel research nodes that each return
+    ``{"research": {<facet>: ...}}`` would clobber each other (or trigger
+    ``InvalidUpdateError`` on stricter LangGraph versions). Each node owns a
+    distinct facet key, so a shallow ``{**left, **right}`` is order-
+    independent in practice; ``right`` wins on the (defensive) overlap case.
+    """
+    if not left and not right:
+        return {}
+    if not left:
+        return dict(right or {})
+    if not right:
+        return dict(left)
+    return {**left, **right}
+
+
 class GraphState(TypedDict, total=False):
     # —— entry ——
     input: RunInput
@@ -56,7 +77,7 @@ class GraphState(TypedDict, total=False):
     market_data: MarketDataBundle
 
     # —— research layer (3-way parallel writes) ——
-    research: ResearchSection
+    research: Annotated[ResearchSection, _merge_research]
 
     # —— debate layer ——
     debate_turns: Annotated[list[DebateTurn], add]
