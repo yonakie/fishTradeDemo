@@ -1,0 +1,137 @@
+{# 1. Header #}
+## 1. 决策摘要
+
+| 字段 | 值 |
+|------|----|
+| 标的 | {{ s.ticker }} |
+| 评估日 | {{ s.as_of_date }} |
+| Run ID | `{{ s.run_id }}` |
+| 模式 | {{ s.mode }} |
+| 资金规模 | {{ s.capital | safe_str }} |
+{% if s.debate %}
+| 最终判定 | **{{ s.debate.final_verdict }}**（建议仓位 {{ '%.2f' | format(s.debate.proposed_position_pct) }}%） |
+{% else %}
+| 最终判定 | **未抵达辩论层** |
+{% endif %}
+{% if s.halt_reason %}
+| 中止原因 | `{{ s.halt_reason }}` |
+{% endif %}
+
+{# 2. Research scores #}
+## 2. 三面打分
+
+{% for facet, label, report in [
+  ('fundamental', '基本面', s.research_fundamental),
+  ('technical', '技术面', s.research_technical),
+  ('sentimental', '情绪面', s.research_sentimental),
+] %}
+### 2.{{ loop.index }} {{ label }}{% if report %}（总分 {{ report.total_score }} → {{ report.verdict }}，置信 {{ '%.2f' | format(report.confidence) }}）{% else %}（未生成）{% endif %}
+
+{% if report %}
+| # | 指标 | 原始值 | 评分 | 解释 |
+|---|------|--------|------|------|
+{% for ind in report.indicator_scores -%}
+| {{ loop.index }} | {{ ind.display_name_zh }} | {{ ind.raw_value | safe_str }} | {{ ind.score }} | {{ ind.reasoning }}{% if ind.is_degraded %}（**降级**：{{ ind.degrade_reason }}）{% endif %} |
+{% endfor %}
+
+{% if report.key_highlights %}**核心亮点**：{% for h in report.key_highlights %}{{ h }}{% if not loop.last %}；{% endif %}{% endfor %}{% endif %}
+{% if report.is_facet_degraded %}> ⚠️ 本面整体降级：{{ report.degrade_summary }}{% endif %}
+{% else %}
+> 未生成本面报告。
+{% endif %}
+
+{% endfor %}
+
+{# 3. Debate transcript #}
+## 3. 辩论实录
+
+{% if s.debate %}
+{% for turn in s.debate.turns %}
+**第 {{ turn.round }} 轮 · {{ '多方' if turn.role == 'bull' else '空方' }}** → 结论：{{ turn.conclusion }}{% if turn.is_fallback %}（fallback 模板）{% endif %}
+
+> {{ turn.argument }}
+
+引用：{{ turn.cited_indicators | join(', ') }}
+
+{% endfor %}
+**Judge 总结**：{{ s.debate.final_rationale }}
+{% else %}
+> 未抵达辩论层（{% if s.halt_reason %}{{ s.halt_reason }}{% else %}原因未知{% endif %}）。
+{% endif %}
+
+{# 4. Risk decision #}
+## 4. 风控判定
+
+{% if s.risk %}
+- 决策：**{{ s.risk.decision }}**，最终仓位 {{ '%.2f' | format(s.risk.adjusted_position_pct) }}%
+{% if s.risk.reject_reason %}- 拒绝原因：`{{ s.risk.reject_reason }}`{% endif %}
+
+| 硬规则 | 通过 | 实际值 | 阈值 | 说明 |
+|--------|------|--------|------|------|
+{% for c in s.risk.hard_checks -%}
+| {{ c.rule }} | {{ '✅' if c.passed else '❌' }} | {{ c.actual | safe_str }} | {{ c.threshold | safe_str }} | {{ c.detail }} |
+{% endfor %}
+
+**VaR**：var_95 = {{ '%.4f' | format(s.risk.var_result.var_95) }}, portfolio_impact = {{ '%.4f' | format(s.risk.var_result.portfolio_impact) }}, 样本 {{ s.risk.var_result.sample_size }}, 通过 {{ '✅' if s.risk.var_result.passed else '❌' }}{% if s.risk.var_result.fallback_reason %}，降级原因：{{ s.risk.var_result.fallback_reason }}{% endif %}
+
+**软规则**：旗标 = {{ s.risk.soft_judgment.flags | join(', ') }}，调整 = {{ s.risk.soft_judgment.adjustment }}
+
+> {{ s.risk.soft_judgment.reasoning }}
+{% else %}
+> 未抵达风控层。
+{% endif %}
+
+{# 5. Execution #}
+## 5. 执行记录
+
+{% if s.execution %}
+- 模式：{{ s.execution.mode }}，状态：**{{ s.execution.status }}**
+{% if s.execution.broker_order_id %}- 经纪商订单号：`{{ s.execution.broker_order_id }}`{% endif %}
+{% if s.execution.error %}- 错误：`{{ s.execution.error }}`{% endif %}
+
+{% if s.execution.order %}
+| 字段 | 值 |
+|------|----|
+| 标的 | {{ s.execution.order.symbol }} |
+| 方向 | {{ s.execution.order.side }} |
+| 数量 | {{ s.execution.order.qty }} |
+| 类型 | {{ s.execution.order.order_type }} |
+| 限价 | {{ s.execution.order.limit_price }} |
+| 止损价 | {{ s.execution.order.stop_price | safe_str }} |
+| TIF | {{ s.execution.order.tif }} |
+{% else %}
+> 未生成订单。
+{% endif %}
+
+{% if s.execution.fill_info %}
+**成交信息**：均价 {{ s.execution.fill_info.avg_price }}，成交数量 {{ s.execution.fill_info.filled_qty }}，时间 {{ s.execution.fill_info.fill_time }}
+{% endif %}
+{% else %}
+> 未抵达执行层。
+{% endif %}
+
+{# 6. Portfolio change #}
+## 6. Portfolio 变更
+
+| 项 | Before | After |
+|----|--------|-------|
+| 现金 | {{ s.portfolio_before.cash if s.portfolio_before else '—' }} | {{ s.portfolio_after.cash if s.portfolio_after else '—' }} |
+| NAV | {{ s.portfolio_before.nav if s.portfolio_before else '—' }} | {{ s.portfolio_after.nav if s.portfolio_after else '—' }} |
+| 持仓数 | {{ s.portfolio_before.positions | length if s.portfolio_before else '—' }} | {{ s.portfolio_after.positions | length if s.portfolio_after else '—' }} |
+| 最大回撤(%) | {{ s.portfolio_before.max_drawdown_pct if s.portfolio_before else '—' }} | {{ s.portfolio_after.max_drawdown_pct if s.portfolio_after else '—' }} |
+
+{# 7. Warnings #}
+## 7. 降级与告警
+
+{% if s.warnings %}
+{% for w in s.warnings -%}
+- `{{ w }}`
+{% endfor %}
+{% else %}
+> 无降级标记。
+{% endif %}
+
+{# 8. Trace #}
+## 8. Trace
+
+- 索引文件：`{{ s.trace_path }}`

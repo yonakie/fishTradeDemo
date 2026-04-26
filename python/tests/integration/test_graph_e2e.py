@@ -256,18 +256,45 @@ def test_hitl_interrupt_pauses_then_resumes(patch_ark):
     assert "portfolio_after" in final
 
 
+def test_hitl_interrupt_rejected_path_skips_execution(patch_ark):
+    """HITL pause → ``hitl_decision='rejected'`` → render_report (no execution).
+
+    Session 4 had a known bug here that turned out to be the
+    ``state: GraphState`` annotation on ``route_after_hitl`` causing
+    LangGraph 1.x to filter the state dict to GraphState's declared
+    keys — stripping ``hitl_decision`` (which lives on ``BuilderState``).
+    Session 5 changed the annotation to ``Mapping[str, Any]`` and this
+    test now exercises the rejected path end-to-end.
+    """
+    patch_ark(judge_verdict="BUY", judge_pct=7.0)
+    saver = MemorySaver()
+    graph = build_graph(checkpointer=saver)
+
+    state = _initial_state(hitl=True)
+    cfg = {"configurable": {"thread_id": state["run_id"]}}
+
+    paused = graph.invoke(state, config=cfg)
+    snap = graph.get_state(cfg)
+    assert snap.next == ("hitl_gate",)
+    assert paused["risk"]["decision"] == "approve"
+
+    graph.update_state(cfg, {"hitl_decision": "rejected"})
+    final = graph.invoke(None, config=cfg)
+
+    # Routed to render_report directly: execution never set.
+    assert "execution" not in final or final.get("execution") is None
+    # update_portfolio also never ran.
+    assert "portfolio_after" not in final or final.get("portfolio_after") is None
+    # The decision is preserved on the state for the report.
+    assert final.get("hitl_decision") == "rejected"
+
+
 def test_hitl_paused_state_carries_full_pipeline_output(patch_ark):
     """Sanity-check: at HITL pause, the prior pipeline output is queryable.
 
-    Verifies that the SqliteSaver/MemorySaver-backed checkpoint exposes
-    the full risk/debate output so the CLI can render the "approve at
-    7%? [y/N]" prompt with real numbers. (We deliberately do not test
-    the *rejected* resume path — in the full graph LangGraph 1.x's
-    ``update_state`` between ``interrupt_before`` and ``invoke(None)``
-    has an edge case where channel writes don't reach the routing
-    function; the CLI works around this by ALWAYS routing through the
-    approved branch and letting the user re-issue ``run`` if they
-    decline. The Session-5 CLI work will revisit if needed.)
+    Verifies that the checkpointer-backed snapshot exposes the full
+    risk/debate output so the CLI can render the "approve at 7%? [y/N]"
+    prompt with real numbers.
     """
     patch_ark(judge_verdict="BUY", judge_pct=7.0)
     graph = build_graph(checkpointer=MemorySaver())
