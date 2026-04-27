@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...models.state import GraphState
-from ._common import run_debate_turn
+from ._common import coerce_turns, run_debate_turn
 
 
 def _bear_node(state: GraphState, *, round_idx: int, node_name: str) -> dict:
@@ -15,7 +15,7 @@ def _bear_node(state: GraphState, *, round_idx: int, node_name: str) -> dict:
         run_id=run_id,
         node_name=node_name,
     )
-    patch: dict = {"debate_turns": [turn]}
+    patch: dict = {"debate_turns": [turn.model_dump()]}
     if warnings:
         patch["warnings"] = warnings
     return patch
@@ -27,7 +27,7 @@ def debate_opening_bear_node(state: GraphState) -> dict:
 
 
 def debate_rebuttal_bear_node(state: GraphState) -> dict:
-    prior = state.get("debate_turns") or []
+    prior = coerce_turns(state.get("debate_turns") or [])
     next_round = max((t.round for t in prior), default=0) + 1
     next_round = min(next_round, 3)
     return _bear_node(
