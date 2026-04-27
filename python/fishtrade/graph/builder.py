@@ -45,6 +45,7 @@ from ..agents.research import fundamental_node, sentimental_node, technical_node
 from ..agents.risk import hard_rules_node, soft_judge_node, var_check_node
 from ..models.state import GraphState
 from ..observability.logger import get_logger
+from ..observability.node_log import wrap_node
 from ..tools.yf_client import (
     InvalidTickerError,
     YFinanceClient,
@@ -307,26 +308,31 @@ def build_graph(
     g: StateGraph = StateGraph(BuilderState)
 
     # —— nodes (names exactly per design §5.1) ——
-    g.add_node("validate_input", validate_input_node)
-    g.add_node("fetch_market", fetch_market_node)
-    g.add_node("research_fund", fundamental_node)
-    g.add_node("research_tech", technical_node)
-    g.add_node("research_sent", sentimental_node)
-    g.add_node("debate_open_bull", debate_opening_bull_node)
-    g.add_node("debate_open_bear", debate_opening_bear_node)
-    g.add_node("debate_rebuttal", _debate_rebuttal_node)
-    g.add_node("debate_judge", debate_judge_node)
-    g.add_node("risk_hard", hard_rules_node)
-    g.add_node("risk_var", var_check_node)
-    g.add_node("risk_soft", soft_judge_node)
-    g.add_node("hitl_gate", hitl_gate_node)
-    g.add_node("execute_router_dispatch", _execute_router_dispatch_node)
-    g.add_node("execute_dryrun", dryrun_node)
-    g.add_node("execute_paper", paper_node)
-    g.add_node("execute_backtest", backtest_node)
-    g.add_node("skip_execution", skip_execution_node)
-    g.add_node("update_portfolio", update_portfolio_node)
-    g.add_node("render_report", render_report_node)
+    # Each node is wrapped with `wrap_node` so the console/frontend gets
+    # a uniform start / complete / content / failed event stream.
+    def _add(name: str, fn) -> None:
+        g.add_node(name, wrap_node(name, fn))
+
+    _add("validate_input", validate_input_node)
+    _add("fetch_market", fetch_market_node)
+    _add("research_fund", fundamental_node)
+    _add("research_tech", technical_node)
+    _add("research_sent", sentimental_node)
+    _add("debate_open_bull", debate_opening_bull_node)
+    _add("debate_open_bear", debate_opening_bear_node)
+    _add("debate_rebuttal", _debate_rebuttal_node)
+    _add("debate_judge", debate_judge_node)
+    _add("risk_hard", hard_rules_node)
+    _add("risk_var", var_check_node)
+    _add("risk_soft", soft_judge_node)
+    _add("hitl_gate", hitl_gate_node)
+    _add("execute_router_dispatch", _execute_router_dispatch_node)
+    _add("execute_dryrun", dryrun_node)
+    _add("execute_paper", paper_node)
+    _add("execute_backtest", backtest_node)
+    _add("skip_execution", skip_execution_node)
+    _add("update_portfolio", update_portfolio_node)
+    _add("render_report", render_report_node)
 
     # —— entry & data ——
     g.add_edge(START, "validate_input")

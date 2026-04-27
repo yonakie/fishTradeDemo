@@ -9,6 +9,7 @@ colorama==0.4.6
 coverage==7.13.5
 curl_cffi==0.15.0
 distro==1.9.0
+diskcache==5.6.3
 freezegun==1.5.5
 frozendict==2.4.7
 h11==0.16.0
@@ -17,6 +18,7 @@ httpx==0.28.1
 idna==3.13
 iniconfig==2.3.0
 jiter==0.14.0
+Jinja2==3.1.6
 jsonpatch==1.33
 jsonpointer==3.1.1
 langchain==1.2.15
@@ -47,6 +49,7 @@ pluggy==1.6.0
 protobuf==7.34.1
 pycparser==3.0
 pydantic==2.13.3
+pydantic-settings==2.11.0
 pydantic_core==2.46.3
 Pygments==2.20.0
 pytest==9.0.3
@@ -69,6 +72,7 @@ structlog==25.5.0
 tenacity==9.1.4
 tiktoken==0.12.0
 tqdm==4.67.3
+typer==0.20.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.2
