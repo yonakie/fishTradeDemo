@@ -17,6 +17,20 @@ from ...models.research import ResearchReport
 Role = Literal["bull", "bear"]
 
 
+def coerce_turns(turns: list) -> list[DebateTurn]:
+    """Accept list[DebateTurn | dict] from checkpoint and normalise to DebateTurn."""
+    out: list[DebateTurn] = []
+    for t in turns:
+        if isinstance(t, DebateTurn):
+            out.append(t)
+        elif isinstance(t, dict):
+            try:
+                out.append(DebateTurn.model_validate(t))
+            except Exception:
+                pass
+    return out
+
+
 def _coerce_research(raw: Any) -> ResearchReport | None:
     """Accept either an already-parsed ResearchReport or its model_dump dict."""
     if raw is None:
@@ -124,7 +138,7 @@ def run_debate_turn(
     summaries = collect_summaries(research)
     valid_indicator_names = collect_valid_indicator_names(research)
 
-    prior_all = state.get("debate_turns") or []
+    prior_all = coerce_turns(state.get("debate_turns") or [])
     prior_truncated = truncate_debate_history(prior_all, keep_last_n=2)
 
     messages = build_debate_prompt(
@@ -229,7 +243,7 @@ def run_debate_judge(
 ) -> tuple[DebateResult, list[str]]:
     """Drive the judge LLM call with full degradation handling."""
     research = collect_research(state)
-    debate_turns: list[DebateTurn] = list(state.get("debate_turns") or [])
+    debate_turns: list[DebateTurn] = coerce_turns(state.get("debate_turns") or [])
 
     degraded_facets = [
         facet
@@ -295,6 +309,7 @@ def run_debate_judge(
 
 
 __all__ = [
+    "coerce_turns",
     "collect_research",
     "collect_summaries",
     "collect_valid_indicator_names",
