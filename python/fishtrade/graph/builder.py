@@ -18,6 +18,7 @@ Per Session 4 contract:
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -137,8 +138,10 @@ def validate_input_node(state: BuilderState) -> dict:
         # Degrade rather than halt: we may still have cached data.
         return {"warnings": [f"YF_RATE_LIMIT:get_info:{ticker}"]}
 
-    # Park the info dict so fetch_market_node doesn't re-hit the network.
-    md_seed: dict = {"info": info, "fetch_warnings": []}
+    # Sanitise info through JSON round-trip to strip any non-primitive types
+    # (e.g. pandas.Timestamp) that would be blocked by msgpack on checkpoint read.
+    safe_info = json.loads(json.dumps(info, default=str))
+    md_seed: dict = {"info": safe_info, "fetch_warnings": []}
     return {"market_data": md_seed}
 
 
