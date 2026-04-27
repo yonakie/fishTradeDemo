@@ -22,6 +22,11 @@ def configure_logging(level: str = "INFO") -> None:
         level=getattr(logging, level.upper(), logging.INFO),
     )
 
+    # Silence the per-request "HTTP Request: POST ... 200 OK" stream from
+    # httpx/openai/httpcore. Errors still surface at WARNING+.
+    for noisy in ("httpx", "httpcore", "openai", "openai._base_client"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
