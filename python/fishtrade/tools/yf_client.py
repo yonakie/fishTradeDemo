@@ -6,10 +6,12 @@ directly, which keeps rate-limit handling and cache logic centralised.
 
 from __future__ import annotations
 
+import math
 import time
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime as _dt
 from typing import Any, Callable, TypeVar
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -34,21 +36,59 @@ def _today_iso() -> str:
     return date_cls.today().isoformat()
 
 
+def _to_primitive(value: Any) -> Any:
+    """Coerce a single cell to a JSON/msgpack-safe primitive.
+
+    Critical for langgraph's checkpoint serializer, which refuses to
+    deserialize ``pandas.Timestamp.fromisoformat`` (and similar non-stdlib
+    constructors) and emits a noisy warning per blocked call.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (pd.Timestamp, _dt, date_cls)):
+        return str(value)
+    if isinstance(value, pd.Timedelta):
+        return value.isoformat()
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        f = float(value)
+        return None if math.isnan(f) else f
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value
+    # Last resort — stringify so msgpack does not see an opaque object.
+    return str(value)
+
+
 def _df_to_payload(df: pd.DataFrame | None) -> dict | None:
-    """Serialise a DataFrame so it survives diskcache + JSON round-trips."""
+    """Serialise a DataFrame so it survives diskcache + langgraph checkpoints.
+
+    Cell values are coerced to JSON-safe primitives so that
+    ``pandas.Timestamp`` (e.g. yfinance options chain ``lastTradeDate``)
+    never reaches msgpack — otherwise langgraph emits one
+    ``Blocked deserialization`` warning per cell on checkpoint read.
+    """
     if df is None:
         return None
     if not isinstance(df, pd.DataFrame):
         return None
     if df.empty:
-        return {"columns": list(df.columns), "index": [], "data": []}
+        return {"columns": [str(c) for c in df.columns], "index": [], "data": []}
     safe = df.copy()
     safe.index = [str(x) for x in safe.index]
     safe.columns = [str(c) for c in safe.columns]
+    rows = safe.where(pd.notna(safe), None).values.tolist()
+    sanitized: list[list[Any]] = [[_to_primitive(v) for v in row] for row in rows]
     return {
         "columns": list(safe.columns),
         "index": list(safe.index),
-        "data": safe.where(pd.notna(safe), None).values.tolist(),
+        "data": sanitized,
     }
 
 

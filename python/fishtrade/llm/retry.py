@@ -21,6 +21,11 @@ from tenacity import (
     wait_exponential,
 )
 
+from ..config.settings import settings
+from ..observability.logger import get_logger
+
+_logger = get_logger(__name__)
+
 try:
     from openai import APIConnectionError, APITimeoutError, RateLimitError
 except Exception:  # pragma: no cover - openai always available, defensive only
@@ -73,18 +78,38 @@ def _inject_repair_nudge(messages: list[dict]) -> list[dict]:
     return repaired
 
 
+def _log_retry_attempt(retry_state: Any) -> None:
+    """Surface retries that would otherwise be silent — see issue with
+    180s+ timeouts where the user only saw a single fallback warning."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    _logger.warning(
+        "ark_retry",
+        attempt=retry_state.attempt_number,
+        next_wait_s=getattr(retry_state.next_action, "sleep", None),
+        node=retry_state.kwargs.get("node_name", "unknown"),
+        run_id=retry_state.kwargs.get("run_id", "ad-hoc"),
+        error=f"{type(exc).__name__}: {exc}" if exc else None,
+    )
+
+
 def ark_retry(func: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap an Ark caller with retry + JSON repair nudging.
 
     The decorated function must accept ``messages`` as either positional[0]
     or a keyword argument.
+
+    Total attempts = ``settings.ark_max_retries + 1`` (i.e. one initial
+    call plus that many retries). Default is 3 attempts.
     """
+
+    max_attempts = max(1, int(settings.ark_max_retries) + 1)
 
     base = retry(
         reraise=True,
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(_RETRY_EXCEPTIONS),
+        before_sleep=_log_retry_attempt,
     )(func)
 
     @functools.wraps(func)

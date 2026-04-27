@@ -183,7 +183,10 @@ def fetch_market_node(state: BuilderState) -> dict:
         return value
 
     if "info" not in md or md.get("info") is None:
-        md["info"] = _safe("info", lambda: client.get_info(ticker, as_of=as_of), payload=False)
+        info = _safe("info", lambda: client.get_info(ticker, as_of=as_of), payload=False)
+        # Strip non-primitive types (e.g. pandas.Timestamp on dividendDate) so
+        # the langgraph msgpack writer never sees them.
+        md["info"] = json.loads(json.dumps(info, default=str)) if info else info
     md["history"] = _safe("history", lambda: client.get_history(ticker, period="1y", as_of=as_of))
     md["financials"] = _safe("financials", lambda: client.get_financials(ticker, as_of=as_of), payload=False)
     md["cashflow"] = _safe("cashflow", lambda: client.get_cashflow(ticker, as_of=as_of), payload=False)

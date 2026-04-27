@@ -197,18 +197,86 @@ def run_debate_turn(
     return turn, warnings
 
 
+def _last_real_conclusion(
+    debate_turns: list[DebateTurn], role: Role
+) -> str | None:
+    """Most recent non-fallback conclusion for ``role``, if any."""
+    for t in reversed(debate_turns):
+        if t.role == role and not t.is_fallback:
+            return t.conclusion
+    return None
+
+
 def fallback_debate_result(
     *,
     research: dict[str, ResearchReport | None],
     debate_turns: list[DebateTurn],
     degraded_facets: list[str],
 ) -> DebateResult:
-    """Pure-rule judge: majority vote across facets; degraded → HOLD/SELL."""
+    """Pure-rule judge with two priority layers.
+
+    1. If the debate produced *real* (non-fallback) bull/bear turns, vote
+       on those — they reflect what actually happened in the dialogue.
+       This avoids the prior bug where the judge fell back, the bull/bear
+       successfully argued BUY/SELL, but the rationale only counted the
+       three research verdicts and reported ``BUY=0/SELL=0/HOLD=3``.
+    2. Otherwise, fall back to majority vote across research facets.
+
+    A heavily-degraded research panel (≥2 facets degraded) still forces
+    a HOLD regardless of the debate.
+    """
+    if len(degraded_facets) >= 2:
+        return DebateResult(
+            turns=debate_turns,
+            final_verdict="HOLD",
+            final_rationale="[FALLBACK] 多面研究降级（≥2），裁判降为 HOLD，仓位 0。",
+            confidence=0.2,
+            proposed_position_pct=0.0,
+            degraded_facets=degraded_facets,  # type: ignore[arg-type]
+        )
+
+    bull = _last_real_conclusion(debate_turns, "bull")
+    bear = _last_real_conclusion(debate_turns, "bear")
+    if bull is not None and bear is not None:
+        debate_votes = [bull, bear]
+        b = debate_votes.count("BUY")
+        s = debate_votes.count("SELL")
+        h = debate_votes.count("HOLD")
+        if b > s and b >= 1 and s == 0:
+            final = "BUY"
+            position = 5.0
+            rationale = (
+                f"[FALLBACK] 辩论结果：bull={bull} / bear={bear}（BUY={b}/SELL={s}/HOLD={h}），"
+                "无对立空头，按规则给 5% 仓位。"
+            )
+        elif s > b and s >= 1 and b == 0:
+            final = "SELL"
+            position = 0.0
+            rationale = (
+                f"[FALLBACK] 辩论结果：bull={bull} / bear={bear}（BUY={b}/SELL={s}/HOLD={h}），"
+                "无对立多头，按规则 SELL。"
+            )
+        else:
+            final = "HOLD"
+            position = 0.0
+            rationale = (
+                f"[FALLBACK] 辩论双方分歧：bull={bull} / bear={bear}（BUY={b}/SELL={s}/HOLD={h}），"
+                "无明确多数，HOLD。"
+            )
+        return DebateResult(
+            turns=debate_turns,
+            final_verdict=final,
+            final_rationale=rationale,
+            confidence=0.3 if not degraded_facets else 0.25,
+            proposed_position_pct=position,
+            degraded_facets=degraded_facets,  # type: ignore[arg-type]
+        )
+
     verdicts = [r.verdict for r in research.values() if r is not None]
-    if not verdicts or len(degraded_facets) >= 2:
+    if not verdicts:
         final = "HOLD"
         position = 0.0
-        rationale = "[FALLBACK] 三面研究多数缺失或降级；裁判降为 HOLD，仓位 0。"
+        rationale = "[FALLBACK] 三面研究均缺失；裁判降为 HOLD，仓位 0。"
     else:
         buy = verdicts.count("BUY")
         sell = verdicts.count("SELL")
